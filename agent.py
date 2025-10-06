@@ -1,10 +1,76 @@
+def _process_pairing_queue(self):
+    try:
+        req = self._pairing_queue.get_nowait()
+    except queue.Empty:
+        return
+
+    request_type = req['type']
+    device = req['device']
+    uuid = req.get('uuid')
+    event = req.get('event')  # Added for synchronization
+    device_address = device.split("dev_")[-1].replace("_", ":")
+
+    if request_type == "pin":
+        pin, ok = QInputDialog.getText(self, "Pairing Request",
+                                       f"Enter PIN for device {device_address}:")
+        req['resp'] = pin if ok and pin else None
+
+    elif request_type == "passkey":
+        passkey, ok = QInputDialog.getInt(self, "Pairing Request",
+                                          f"Enter passkey for device {device_address}:")
+        req['resp'] = int(passkey) if ok else None
+
+        if req['resp'] is not None:
+            self.add_paired_device_to_list(device_address)
+
+    elif request_type == "confirm":
+        reply = QMessageBox.question(self, "Confirm Pairing",
+                                     f"Device {device_address} requests to pair "
+                                     f"with passkey: {uuid}\nAccept?",
+                                     QMessageBox.StandardButton.Yes |
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.add_paired_device_to_list(device_address)
+            req['resp'] = True
+        else:
+            req['resp'] = False
+
+    elif request_type == "authorize":
+        reply = QMessageBox.question(self, "Authorize Service",
+                                     f"Device {device_address} wants to use service {uuid}\nAllow?",
+                                     QMessageBox.StandardButton.Yes |
+                                     QMessageBox.StandardButton.No)
+        req['resp'] = True if reply == QMessageBox.StandardButton.Yes else False
+        if not req['resp']:
+            self.bluetooth_device_manager.disconnect(device_address)
+
+    elif request_type == "display_pin":
+        QMessageBox.information(self, "Display PIN",
+                                f"Enter this PIN on {device_address}: {uuid}")
+        req['resp'] = None
+
+    elif request_type == "display_passkey":
+        QMessageBox.information(self, "Display Passkey",
+                                f"Enter this passkey on {device_address}: {uuid}")
+        req['resp'] = None
+
+    else:
+        req['resp'] = None
+
+    # Signal back to waiting DBus thread
+    if event:
+        event.set()
+
+
+
+
 import threading
 import dbus
 import dbus.service
 
 class Agent(dbus.service.Object):
     def __init__(self, bus, path, ui_callback, log):
-        super().__init__(bus, path)
+        super().__init__(bus, path)a
         self.bus = bus
         self.ui_callback = ui_callback
         self.log = log
