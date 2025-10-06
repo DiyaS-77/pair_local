@@ -1,3 +1,42 @@
+def pair(self, address):
+    def _pairing_thread():
+        device_path = self.find_device_path(address)
+        if not device_path:
+            self.log.warning("Device path not found for %s", address)
+            return
+
+        try:
+            device_proxy = self.bus.get_object(constants.bluez_service, device_path)
+            device = dbus.Interface(device_proxy, constants.device_interface)
+            properties = dbus.Interface(device_proxy, constants.properties_interface)
+
+            paired = properties.Get(constants.device_interface, "Paired")
+            if paired:
+                self.log.info("Device %s is already paired.", address)
+                return
+
+            self.log.info("Initiating pairing with %s", address)
+            device.Pair()
+
+            # Wait a bit for pairing to complete
+            for _ in range(30):  # ~30 seconds max
+                time.sleep(1)
+                paired = properties.Get(constants.device_interface, "Paired")
+                if paired:
+                    self.log.info("Successfully paired with %s", address)
+                    return
+
+            self.log.warning("Pairing not confirmed with %s within timeout.", address)
+
+        except dbus.exceptions.DBusException as error:
+            self.log.error("Pairing failed with %s: %s", address, error)
+
+    threading.Thread(target=_pairing_thread, daemon=True).start()
+    return True  # Return immediately to keep UI responsive
+
+
+
+
 from PyQt6.QtCore import QMetaObject, Q_ARG, Qt
 
 def pairing_ui_callback(self, request_type, device, uuid=None):
